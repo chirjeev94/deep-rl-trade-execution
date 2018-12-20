@@ -20,7 +20,8 @@ class ExecutionAgent:
                     alpha = 1e-3,
                     numtrajs = 10,
                     train_iterations = 100,
-                    device = "/gpu:0"):
+                    device = "/gpu:0",
+                    exec_interations = 1000):
 
         self.optimizer = tf.train.AdamOptimizer(alpha)
         self.environment = Environment()
@@ -28,6 +29,7 @@ class ExecutionAgent:
         self.numtrajs = numtrajs
         self.train_iterations = train_iterations
         self.device = device
+        self.exec_interations = exec_interations
 
         ##self.Policy
 
@@ -111,15 +113,11 @@ class ExecutionAgent:
         print('Model Restored')
 
         adv = []
-
-
-
-        iterations = 1000
         agent_ap = []
         vwap_episode = []
         trade_times = []
 
-        for ite in range(iterations):
+        for ite in range(exec_iterations):
 
             ACTS = [0]
             probs = [[0.0, 0.0, 0.0, 0.0, 0.0]]
