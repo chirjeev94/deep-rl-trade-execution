@@ -16,14 +16,86 @@ sns.set_style('whitegrid')
 
 class ExecutionAgent:
 
-    def __init__(self, alpha):
+    def __init__(self, 
+                    alpha = 1e-3,
+                    numtrajs = 10,
+                    train_iterations = 100):
         self.optimizer = tf.train.AdamOptimizer(alpha)
         self.environment = Environment()
+        self.alpha = alpha
+        self.numtrajs = numtrajs
+        self.train_iterations = train_iterations
+
         ##self.Policy
 
     def train(self):
 
-        pass
+        obsSize = self.env.obsSize
+        actSize = self.env.actSize
+        
+        sess = tf.Session()
+
+        # initialize networks
+        # if command line parameter is given as '/gpu:0', construct the graph for gpu, else construct for cpu
+        if (len(sys.argv) > 1 and sys.argv[1] == '/gpu:0'):
+            actor = Policy(obsSize, actSize, sess, self.optimizer, sys.argv[1])
+        else:
+            actor = Policy(obsSize, actSize, sess, self.optimizer)
+
+        # initialize tensorflow graphs
+        sess.run(tf.global_variables_initializer())
+        saver = tf.train.Saver()
+        saver.restore(sess, './model/parameters.ckpt')
+        print('Model Restored')
+
+
+        adv = []
+        start_time = time.time()
+        for ite in range(self.train_iterations):
+            
+            # trajectory records for batch update
+            OBS = []
+            ACTS = []
+            VALS = []
+            
+            for num in range(self.numtrajs):
+                # record for each trajectory
+                obss = []
+                acts = []
+                rews = []
+
+                obs, done = self.env.reset()
+
+                while not done:
+                    prob = actor.compute_prob(np.expand_dims(obs, 0))
+                    action = np.random.choice(actSize, p=prob.flatten())
+                    #action = np.argmax(prob)
+                    newobs, reward, done, _ = self.env.step(action)
+
+                    obss.append(obs)
+                    acts.append(action)
+                    rews.append(reward)
+                    obs = newobs
+                adv.append(env.averagePrice - self.env.vwap)
+                VALS += rews
+                OBS += obss
+                ACTS += acts
+
+            VALS = np.array(VALS)
+            OBS = np.array(OBS)
+            ACTS = np.array(ACTS)
+
+            actor.train(OBS, ACTS, VALS)
+
+        """ end_time = time.time()
+        train_time = end_time - start_time
+        fp = open('train_time.txt', 'w')
+        fp.write(str(train_time))
+        fp.close()
+         """
+
+        save_path = saver.save(sess, './model/parameters.ckpt')
+        print('Model saved in path ' + str(save_path))
 
     def execute_minute(self):
 
