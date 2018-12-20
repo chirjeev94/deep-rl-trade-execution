@@ -19,12 +19,15 @@ class ExecutionAgent:
     def __init__(self, 
                     alpha = 1e-3,
                     numtrajs = 10,
-                    train_iterations = 100):
+                    train_iterations = 100,
+                    device = "/gpu:0"):
+
         self.optimizer = tf.train.AdamOptimizer(alpha)
         self.environment = Environment()
         self.alpha = alpha
         self.numtrajs = numtrajs
         self.train_iterations = train_iterations
+        self.device = device
 
         ##self.Policy
 
@@ -37,10 +40,7 @@ class ExecutionAgent:
 
         # initialize networks
         # if command line parameter is given as '/gpu:0', construct the graph for gpu, else construct for cpu
-        if (len(sys.argv) > 1 and sys.argv[1] == '/gpu:0'):
-            actor = Policy(obsSize, actSize, sess, self.optimizer, sys.argv[1])
-        else:
-            actor = Policy(obsSize, actSize, sess, self.optimizer)
+            actor = Policy(obsSize, actSize, sess, self.optimizer, self.device)
 
         # initialize tensorflow graphs
         sess.run(tf.global_variables_initializer())
