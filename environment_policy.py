@@ -17,7 +17,7 @@
 import tensorflow as tf
 import numpy as np
 import pandas as pd
-from dataGen import genEpisode, df_trading_day, upperBound, mu_time, std_time
+from tick_data_generator import genEpisode, df_trading_day, upperBound, mu_time, std_time
 
 class Policy(object):
 

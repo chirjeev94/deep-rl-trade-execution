@@ -1,4 +1,3 @@
-// add datagen functions
 
 
 '''
@@ -19,7 +18,9 @@ import sys
 pd.options.mode.chained_assignment = None
 
 def genTradingDay(filename = 'AAPL_20180117.gz'):
+    print(filename)
     file_path = './data/' + filename
+    print(file_path)
     tick_df = pd.read_csv(file_path, compression='gzip', header=0, sep=',', quotechar='"', index_col=0)
     tick_df.index = pd.to_datetime(tick_df.index)
 
@@ -93,11 +94,8 @@ def partitionTradeDay(df_trading_day):
     dflist = dflist[:-1]
     return dflist
 
+df_trading_day, upperBound, mu_bid, mu_time, std_bid, std_time = genTradingDay()
 
-if (len(sys.argv) == 1):
-    df_trading_day, upperBound, mu_bid, mu_time, std_bid, std_time = genTradingDay()
-else:
-    df_trading_day, upperBound, mu_bid, mu_time, std_bid, std_time = genTradingDay(sys.argv[1])
 
 """ 
 # Explore for the number of ticks in a minute and a histogram of volumes every minute

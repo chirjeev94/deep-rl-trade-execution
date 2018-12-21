@@ -19,9 +19,9 @@ class ExecutionAgent:
     def __init__(self, 
                     alpha = 1e-3,
                     numtrajs = 10,
-                    train_iterations = 100,
+                    train_iterations = 5,
                     device = "/gpu:0",
-                    exec_interations = 1000):
+                    exec_iterations = 1000):
 
         self.optimizer = tf.train.AdamOptimizer(alpha)
         self.environment = Environment()
@@ -29,190 +29,193 @@ class ExecutionAgent:
         self.numtrajs = numtrajs
         self.train_iterations = train_iterations
         self.device = device
-        self.exec_interations = exec_interations
+        self.exec_iterations = exec_iterations
 
         ##self.Policy
 
     def train(self):
 
-        obsSize = self.env.obsSize
-        actSize = self.env.actSize
+        obsSize = self.environment.obsSize
+        actSize = self.environment.actSize
         
-        sess = tf.Session()
+        with tf.Session() as sess:
 
-        # initialize networks
-        # if command line parameter is given as '/gpu:0', construct the graph for gpu, else construct for cpu
+            # initialize networks
+            # if command line parameter is given as '/gpu:0', construct the graph for gpu, else construct for cpu
             actor = Policy(obsSize, actSize, sess, self.optimizer, self.device)
 
-        # initialize tensorflow graphs
-        sess.run(tf.global_variables_initializer())
-        saver = tf.train.Saver()
-        saver.restore(sess, './model/parameters.ckpt')
-        print('Model Restored')
+            # initialize tensorflow graphs
+            saver = tf.train.Saver()
+            sess.run(tf.global_variables_initializer())
+
+            saver.restore(sess, './model/parameters.ckpt')
+            #print('Model Restored')
 
 
-        adv = []
-        start_time = time.time()
-        for ite in range(self.train_iterations):
-            
-            # trajectory records for batch update
-            OBS = []
-            ACTS = []
-            VALS = []
-            
-            for num in range(self.numtrajs):
-                # record for each trajectory
-                obss = []
-                acts = []
-                rews = []
+            adv = []
+            start_time = time.time()
+            for ite in range(self.train_iterations):
 
-                obs, done = self.env.reset()
+                # trajectory records for batch update
+                OBS = []
+                ACTS = []
+                VALS = []
 
-                while not done:
-                    prob = actor.compute_prob(np.expand_dims(obs, 0))
-                    action = np.random.choice(actSize, p=prob.flatten())
-                    #action = np.argmax(prob)
-                    newobs, reward, done, _ = self.env.step(action)
+                for num in range(self.numtrajs):
+                    # record for each trajectory
+                    obss = []
+                    acts = []
+                    rews = []
 
-                    obss.append(obs)
-                    acts.append(action)
-                    rews.append(reward)
-                    obs = newobs
-                adv.append(env.averagePrice - self.env.vwap)
-                VALS += rews
-                OBS += obss
-                ACTS += acts
+                    obs, done = self.environment.reset()
 
-            VALS = np.array(VALS)
-            OBS = np.array(OBS)
-            ACTS = np.array(ACTS)
+                    while not done:
+                        prob = actor.compute_prob(np.expand_dims(obs, 0))
+                        action = np.random.choice(actSize, p=prob.flatten())
+                        #action = np.argmax(prob)
+                        newobs, reward, done, _ = self.environment.step(action)
 
-            actor.train(OBS, ACTS, VALS)
+                        obss.append(obs)
+                        acts.append(action)
+                        rews.append(reward)
+                        obs = newobs
+                    adv.append(self.environment.averagePrice - self.environment.vwap)
+                    VALS += rews
+                    OBS += obss
+                    ACTS += acts
 
-        """ end_time = time.time()
-        train_time = end_time - start_time
-        fp = open('train_time.txt', 'w')
-        fp.write(str(train_time))
-        fp.close()
-         """
+                VALS = np.array(VALS)
+                OBS = np.array(OBS)
+                ACTS = np.array(ACTS)
 
-        save_path = saver.save(sess, './model/parameters.ckpt')
-        print('Model saved in path ' + str(save_path))
+                actor.train(OBS, ACTS, VALS)
+
+            """ end_time = time.time()
+            train_time = end_time - start_time
+            fp = open('train_time.txt', 'w')
+            fp.write(str(train_time))
+            fp.close()
+             """
+
+            save_path = saver.save(sess, './model/parameters.ckpt')
+            print('Model saved in path ' + str(save_path))
 
     def execute_minute(self):
 
         env = self.environment
         obsSize = env.obsSize
         actSize = env.actSize
+        with tf.Session() as sess:
+            saver = tf.train.import_meta_graph('./model/parameters.ckpt.meta')
+            saver.restore(sess, './model/parameters.ckpt')
+            print('Model Restored')
 
-        sess = tf.Session()
-        actor = Policy(obsSize, actSize, sess, self.optimizer)
 
-        saver = tf.train.Saver()
-        saver.restore(sess, './model/parameters.ckpt')
-        print('Model Restored')
 
-        adv = []
-        agent_ap = []
-        vwap_episode = []
-        trade_times = []
+            actor = Policy(obsSize, actSize, sess, self.optimizer)
 
-        for ite in range(exec_iterations):
 
-            ACTS = [0]
-            probs = [[0.0, 0.0, 0.0, 0.0, 0.0]]
-            unnormalized_prob = [[0.0, 0.0, 0.0, 0.0, 0.0]]
-            obs, done = self.environment.reset()
-            grad = False
-            while not done:
-                prob = actor.compute_prob(np.expand_dims(obs, 0))
-                if grad:
-                    action_prob = np.exp(prob[0] ** 2 / prev_prob)
-                    action_prob = action_prob / np.sum(action_prob)
-                    prev_prob = prob[0]
-                else:
-                    grad = True
-                    prev_prob = prob[0]
-                    action_prob = prob[0]
-                # action = np.random.choice(actSize, p = action_prob.flatten())
-                action = np.argmax(action_prob)
-                newobs, _, done, _ = env.step(action)
-                obs = newobs
-                ACTS.append(env.action)
-                probs.append(action_prob.tolist())
-                unnormalized_prob.append(prob[0].tolist())
-                if env.action > 0.5:
-                    trade_times.append(env.episodeSlice.index[env.index])
+            adv = []
+            agent_ap = []
+            vwap_episode = []
+            trade_times = []
 
-            pad = [0 for i in range(env.episodeSlice.shape[0] - len(ACTS))]
-            prob_pad = [[0.0, 0.0, 0.0, 0.0, 0.0] for i in range(len(pad))]
-            probs += prob_pad
-            unnormalized_prob += prob_pad
-            ACTS += pad
-            adv.append(env.averagePrice - env.vwap)
-            agent_ap.append(env.averagePrice * std_bid + mu_bid)
-            vwap_episode.append(env.vwap * std_bid + mu_bid)
-            probs = np.array(probs).reshape(-1, 5)
-            unnormalized_prob = np.array(unnormalized_prob).reshape(-1, 5)
+            for ite in range(self.exec_iterations):
 
-        agent_ap = np.array(agent_ap)
-        vwap_episode = np.array(vwap_episode)
-        """ plt.title('Agent performance relative to VWAP')
-        plt.hist((agent_ap - vwap_episode)/ agent_ap)
-        plt.xlabel('difference between agent price and VWAP')
-        plt.savefig('agentPerformance.png')
-        plt.close() """
+                ACTS = [0]
+                probs = [[0.0, 0.0, 0.0, 0.0, 0.0]]
+                unnormalized_prob = [[0.0, 0.0, 0.0, 0.0, 0.0]]
+                obs, done = self.environment.reset()
+                grad = False
+                while not done:
+                    prob = actor.compute_prob(np.expand_dims(obs, 0))
+                    if grad:
+                        action_prob = np.exp(prob[0] ** 2 / prev_prob)
+                        action_prob = action_prob / np.sum(action_prob)
+                        prev_prob = prob[0]
+                    else:
+                        grad = True
+                        prev_prob = prob[0]
+                        action_prob = prob[0]
+                    # action = np.random.choice(actSize, p = action_prob.flatten())
+                    action = np.argmax(action_prob)
+                    newobs, _, done, _ = env.step(action)
+                    obs = newobs
+                    ACTS.append(env.action)
+                    probs.append(action_prob.tolist())
+                    unnormalized_prob.append(prob[0].tolist())
+                    if env.action > 0.5:
+                        trade_times.append(env.episodeSlice.index[env.index])
 
-        print(np.mean((agent_ap - vwap_episode) / agent_ap))
-        print(np.std((agent_ap - vwap_episode) / agent_ap))
-        """ 
-        unstandardized_prices = env.episodeSlice['Trade Price']*std_bid + mu_bid
-        
-        plt.plot(env.episodeSlice.index, unstandardized_prices, label = 'Trade Prices', color = 'b')
-        plt.axhline(y = agent_ap[0], label = 'Agent AP', color = 'g')
-        plt.axhline(y = vwap_episode[0], label = 'VWAP', color = 'r')
-        for t in trade_times:
-            plt.axvline(x = t, color = 'black', marker = '|')
-        plt.legend()
-        plt.savefig('tradeStats.png')
-        plt.close()
-        
-        
-        
-        fig, ax = plt.subplots(5, 1, sharex = True)
-        plt.title('Acion Probabilities')
-        ax[0].plot(env.episodeSlice.index, probs[:, 0], label = 'Prob_0')
-        ax[0].legend()
-        ax[1].plot(env.episodeSlice.index, probs[:, 1], label = 'Prob_1')
-        ax[1].legend()
-        ax[2].plot(env.episodeSlice.index, probs[:, 2], label = 'Prob_2')
-        ax[2].legend()
-        ax[3].plot(env.episodeSlice.index, probs[:, 3], label = 'Prob_3')
-        ax[3].legend()
-        ax[4].plot(env.episodeSlice.index, probs[:, 4], label = 'Prob_4')
-        ax[4].legend()
-        plt.savefig('Probability.png')
-        plt.close()
-        
-        fig, ax = plt.subplots(5, 1, sharex = True)
-        plt.title('Output Probabilities')
-        ax[0].plot(env.episodeSlice.index, unnormalized_prob[:, 0], label = 'Prob_0')
-        ax[0].legend()
-        ax[1].plot(env.episodeSlice.index, unnormalized_prob[:, 1], label = 'Prob_1')
-        ax[1].legend()
-        ax[2].plot(env.episodeSlice.index, unnormalized_prob[:, 2], label = 'Prob_2')
-        ax[2].legend()
-        ax[3].plot(env.episodeSlice.index, unnormalized_prob[:, 3], label = 'Prob_3')
-        ax[3].legend()
-        ax[4].plot(env.episodeSlice.index, unnormalized_prob[:, 4], label = 'Prob_4')
-        ax[4].legend()
-        plt.savefig('outputProbability.png')
-        plt.close()
-        #print(agent_ap - vwap_episode)
-        #print(ACTS)
-        #print(len(ACTS))
-        #print(env.episodeSlice.shape[0])
-         """
+                pad = [0 for i in range(env.episodeSlice.shape[0] - len(ACTS))]
+                prob_pad = [[0.0, 0.0, 0.0, 0.0, 0.0] for i in range(len(pad))]
+                probs += prob_pad
+                unnormalized_prob += prob_pad
+                ACTS += pad
+                adv.append(env.averagePrice - env.vwap)
+                agent_ap.append(env.averagePrice * std_bid + mu_bid)
+                vwap_episode.append(env.vwap * std_bid + mu_bid)
+                probs = np.array(probs).reshape(-1, 5)
+                unnormalized_prob = np.array(unnormalized_prob).reshape(-1, 5)
+
+            agent_ap = np.array(agent_ap)
+            vwap_episode = np.array(vwap_episode)
+            """ plt.title('Agent performance relative to VWAP')
+            plt.hist((agent_ap - vwap_episode)/ agent_ap)
+            plt.xlabel('difference between agent price and VWAP')
+            plt.savefig('agentPerformance.png')
+            plt.close() """
+
+            print(np.mean((agent_ap - vwap_episode) / agent_ap))
+            print(np.std((agent_ap - vwap_episode) / agent_ap))
+            """ 
+            unstandardized_prices = env.episodeSlice['Trade Price']*std_bid + mu_bid
+
+            plt.plot(env.episodeSlice.index, unstandardized_prices, label = 'Trade Prices', color = 'b')
+            plt.axhline(y = agent_ap[0], label = 'Agent AP', color = 'g')
+            plt.axhline(y = vwap_episode[0], label = 'VWAP', color = 'r')
+            for t in trade_times:
+                plt.axvline(x = t, color = 'black', marker = '|')
+            plt.legend()
+            plt.savefig('tradeStats.png')
+            plt.close()
+
+
+
+            fig, ax = plt.subplots(5, 1, sharex = True)
+            plt.title('Acion Probabilities')
+            ax[0].plot(env.episodeSlice.index, probs[:, 0], label = 'Prob_0')
+            ax[0].legend()
+            ax[1].plot(env.episodeSlice.index, probs[:, 1], label = 'Prob_1')
+            ax[1].legend()
+            ax[2].plot(env.episodeSlice.index, probs[:, 2], label = 'Prob_2')
+            ax[2].legend()
+            ax[3].plot(env.episodeSlice.index, probs[:, 3], label = 'Prob_3')
+            ax[3].legend()
+            ax[4].plot(env.episodeSlice.index, probs[:, 4], label = 'Prob_4')
+            ax[4].legend()
+            plt.savefig('Probability.png')
+            plt.close()
+
+            fig, ax = plt.subplots(5, 1, sharex = True)
+            plt.title('Output Probabilities')
+            ax[0].plot(env.episodeSlice.index, unnormalized_prob[:, 0], label = 'Prob_0')
+            ax[0].legend()
+            ax[1].plot(env.episodeSlice.index, unnormalized_prob[:, 1], label = 'Prob_1')
+            ax[1].legend()
+            ax[2].plot(env.episodeSlice.index, unnormalized_prob[:, 2], label = 'Prob_2')
+            ax[2].legend()
+            ax[3].plot(env.episodeSlice.index, unnormalized_prob[:, 3], label = 'Prob_3')
+            ax[3].legend()
+            ax[4].plot(env.episodeSlice.index, unnormalized_prob[:, 4], label = 'Prob_4')
+            ax[4].legend()
+            plt.savefig('outputProbability.png')
+            plt.close()
+            #print(agent_ap - vwap_episode)
+            #print(ACTS)
+            #print(len(ACTS))
+            #print(env.episodeSlice.shape[0])
+             """
 
     def execute_day(self,dataFileName = 'AAPL_20180117.gz',lotsToSell = 2500):
 
